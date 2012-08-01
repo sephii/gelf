@@ -36,12 +36,28 @@ function gelf_perm() {
  * Implement hook_watchdog().
  */
 function gelf_watchdog($entry) {
+  static $gelf_publisher;
+
   if (module_exists('libraries') && $gelflib_path = libraries_get_path('gelf-php')) {
     if (file_exists($gelflib_path . '/GELFMessage.php') && file_exists($gelflib_path . '/GELFMessagePublisher.php')) {
       require_once $gelflib_path . '/GELFMessage.php';
       require_once $gelflib_path . '/GELFMessagePublisher.php';
-      $host = variable_get('gelf_host', 'localhost');
-      $port = variable_get('gelf_port', 12201);
+
+      // Set up the gelf message publisher
+      if (!isset($gelf_publisher)) {
+        $host = variable_get('gelf_host', 'localhost');
+        $port = variable_get('gelf_port', 12201);
+        try {
+          $gelf_publisher = new GELFMessagePublisher($host, $port);
+        }
+        catch (InvalidArgumentException $e) {
+          if (user_access('administer gelf')) {
+            drupal_set_message(t('Unable to instantiate GELF message publisher: @msg', array('@msg' => $e->getMessage())), 'error');
+          }
+          return;
+        }
+      }
+
       $gelf = new GELFMessage();
       $message = filter_xss(is_null($entry['variables']) ? $entry['message'] : strtr($entry['message'], $entry['variables']));
       $short_msg_length = 100;
@@ -66,8 +82,7 @@ function gelf_watchdog($entry) {
       $gelf->setAdditional("Server_host", $_SERVER['HTTP_HOST']);
       $gelf->setAdditional("Client_host", $entry['ip']);
       try {
-        $publisher = new GELFMessagePublisher($host, $port);
-        $publisher->publish($gelf);
+        $gelf_publisher->publish($gelf);
       }
       catch (UnexpectedValueException $e) {
         if(user_access('administer gelf')) {
