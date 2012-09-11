@@ -31,6 +31,10 @@ function gelf_watchdog($entry) {
     return;
   }
 
+  if($entry['severity'] > variable_get('gelf_severity', WATCHDOG_WARNING)) {
+    return;
+  }
+
   $host = variable_get('gelf_host', 'localhost');
   $port = variable_get('gelf_port', 12201);
   $gelf = new GELFMessage();
@@ -81,6 +85,21 @@ function gelf_form_system_logging_settings_alter(&$form, $form_state) {
     '#type' => 'textfield',
     '#title' => t('Graylog2 GELF port'),
     '#default_value' => variable_get('gelf_port', 12201),
+  );
+  $form['gelf_severity'] = array(
+    '#type' => 'select',
+    '#options' => array(
+      WATCHDOG_EMERGENCY => t('Emergency'),
+      WATCHDOG_ALERT => t('Alert'),
+      WATCHDOG_CRITICAL => t('Critical'),
+      WATCHDOG_ERROR => t('Error'),
+      WATCHDOG_WARNING => t('Warning'),
+      WATCHDOG_NOTICE => t('Notice'),
+      WATCHDOG_INFO => t('Info'),
+      WATCHDOG_DEBUG => t('Debug'),
+    ),
+    '#title' => t('Graylog2 minimum severity level'),
+    '#default_value' => variable_get('gelf_severity', WATCHDOG_WARNING),
   );
 
   if (!gelf_require()) {
