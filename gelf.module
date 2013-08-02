@@ -67,7 +67,9 @@ function gelf_watchdog($entry) {
   else {
     $short_message = $message;
   }
+
   $username = isset($entry['user']->name) ? $entry['user']->name : variable_get('anonymous', t('Anonymous'));
+
   $gelf->setShortMessage($short_message);
   $gelf->setFullMessage($message);
   $gelf->setHost($source_host);
@@ -81,11 +83,12 @@ function gelf_watchdog($entry) {
   $gelf->setAdditional("Request_uri", $entry['request_uri']);
   $gelf->setAdditional("Server_host", $_SERVER['HTTP_HOST']);
   $gelf->setAdditional("Client_host", $entry['ip']);
+
   try {
     $publisher = new GELFMessagePublisher($host, $port);
     $publisher->publish($gelf);
   }
-  catch (UnexpectedValueException $e) {
+  catch (Exception $e) {
     if(function_exists('user_access') && user_access('administer gelf')) {
       drupal_set_message(t('Failed to publish gelf message: %message', array('%message' => $e->getMessage())), 'error');
     }
