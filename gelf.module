@@ -1,9 +1,7 @@
 <?php
-
 /**
  * @file
- *      Module enable a Drupal project to log to a graylog2 server.
- *\
+ *   Module enable a Drupal project to log to a graylog2 server.
  */
 
 /**
@@ -28,17 +26,16 @@ function gelf_permission() {
  */
 function gelf_watchdog(array $entry) {
   if (!gelf_require()) {
-    if(function_exists('user_access') && user_access('administer gelf')) {
-      drupal_set_message(t('GELF module requires the GELF PHP library to be installed.  View the README for installation instructions.'), 'error');
-    }
+    _gelf_show_message(
+      'GELF module requires the GELF PHP library to be installed.  View the README for installation instructions.'
+    );
     return;
   }
 
   if (!_gelf_verify_entry($entry)) {
     if(function_exists('user_access') && user_access('administer gelf')) {
-      drupal_set_message(
-        t('GELF module requires the data array to be logged satisfying a special structure which the current entry does not respect.'),
-        'error'
+      _gelf_show_message(
+        'GELF module requires the data array to be logged satisfying a special structure which the current entry does not respect.'
       );
     }
     return;
@@ -57,9 +54,9 @@ function gelf_watchdog(array $entry) {
     $publisher->publish(_gelf_generate_message($entry, $send_as));
   }
   catch (Exception $e) {
-    if(function_exists('user_access') && user_access('administer gelf')) {
-      drupal_set_message(t('Failed to publish gelf message: %message', array('%message' => $e->getMessage())), 'error');
-    }
+    _gelf_show_message(
+      'Failed to publish gelf message: %message', array('%message' => $e->getMessage())
+    );
   }
 }
 
@@ -213,7 +210,7 @@ function gelf_require() {
   }
 
   // Check module for Composer autoload file.
-  if (@include_once(dirname(__FILE__) . '/vendor/autoload.php')) {
+  if (@include_once(__DIR__ . '/vendor/autoload.php')) {
     return TRUE;
   }
 
@@ -231,4 +228,16 @@ function gelf_require() {
   }
 
   return FALSE;
+}
+
+/**
+ * Displays the provides test on the website if the current user has the requitred permissions.
+ *
+ * @param $text
+ */
+function _gelf_show_message($text)
+{
+  if(function_exists('user_access') && user_access('administer gelf')) {
+    drupal_set_message(t($text), 'error');
+  }
 }
