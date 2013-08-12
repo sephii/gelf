@@ -69,7 +69,7 @@ function gelf_watchdog(array $entry) {
  */
 function _gelf_verify_entry(array $entry)
 {
-  $mandatory = array('severity', 'type', 'referer', 'link', 'user', 'request_uri', 'ip', 'message');
+  $mandatory = array('severity', 'type', 'user', 'request_uri', 'ip', 'message');
 
   foreach ($mandatory as $key) {
     if (empty($entry[ $key])) {
@@ -77,7 +77,7 @@ function _gelf_verify_entry(array $entry)
     }
   }
 
-  if (!is_object($$entry['user'])) {
+  if (!is_object($entry['user'])) {
     return false;
   }
 
