@@ -1,9 +1,7 @@
 <?php
-
 /**
  * @file
- * gelf.module
- *
+ *   Module enable a Drupal project to log to a graylog2 server.
  */
 
 /**
@@ -21,12 +19,24 @@ function gelf_permission() {
 }
 
 /**
+ * Send the data to be logged to a central graylog2 server.
  * Implement hook_watchdog().
+ *
+ * @param array $entry
  */
-function gelf_watchdog($entry) {
+function gelf_watchdog(array $entry) {
   if (!gelf_require()) {
+    _gelf_show_message(
+      'GELF module requires the GELF PHP library to be installed.  View the README for installation instructions.'
+    );
+    return;
+  }
+
+  if (!_gelf_verify_entry($entry)) {
     if(function_exists('user_access') && user_access('administer gelf')) {
-      drupal_set_message(t('GELF module requires the GELF PHP library to be installed.  View the README for installation instructions.'), 'error');
+      _gelf_show_message(
+        'GELF module requires the data array to be logged satisfying a special structure which the current entry does not respect.'
+      );
     }
     return;
   }
@@ -39,35 +49,65 @@ function gelf_watchdog($entry) {
   $port = variable_get('gelf_port', 12201);
   $send_as = variable_get('gelf_send_as', 'HOST');
 
-  if($send_as == 'HTTP_HOST') {
-    // The HTTP_HOST can be set to default in the case of a CLI script
-    if($_SERVER['HTTP_HOST'] == 'default') {
-      global $base_url;
-      $source_host = parse_url($base_url, PHP_URL_HOST);
+  try {
+    $publisher = new GELFMessagePublisher($host, $port);
+    $publisher->publish(_gelf_generate_message($entry, $send_as));
+  }
+  catch (Exception $e) {
+    _gelf_show_message(
+      'Failed to publish gelf message: %message', array('%message' => $e->getMessage())
+    );
+  }
+}
 
-      // base_url is not set, fallback to hostname
-      if($source_host == 'default') {
-        $source_host = php_uname('n');
-      }
-    }
-    else {
-      $source_host = $_SERVER['HTTP_HOST'];
+/**
+ * Verifies that the given array applies to the structure an entry has to have.
+ *
+ * @param array $entry
+ *
+ * @return bool
+ */
+function _gelf_verify_entry(array $entry)
+{
+  $mandatory = array('severity', 'type', 'user', 'request_uri', 'ip', 'message');
+
+  foreach ($mandatory as $key) {
+    if (empty($entry[ $key])) {
+      return false;
     }
   }
-  else {
-    $source_host = php_uname('n');
+
+  if (!is_object($entry['user'])) {
+    return false;
   }
 
-  $gelf = new GELFMessage();
+  return true;
+}
+
+/**
+ * Generates a message suitable to be logged on a graylog2 server.
+ *
+ * @param array  $entry
+ * @param string $send_as
+ *
+ * @return GELFMessage
+ */
+function _gelf_generate_message(array $entry, $send_as)
+{
+  $source_host = _gelf_determine_source_host($send_as);
   $message = filter_xss(is_null($entry['variables']) ? $entry['message'] : strtr($entry['message'], $entry['variables']));
   $short_msg_length = 100;
+
   if(strlen($message) > $short_msg_length) {
-    $short_message = preg_replace('/\s+?(\S+)?$/u', '', substr($message, 0, $short_msg_length));
+      $short_message = preg_replace('/\s+?(\S+)?$/u', '', substr($message, 0, $short_msg_length));
   }
   else {
-    $short_message = $message;
+      $short_message = $message;
   }
-  $username = isset($entry['user']->name) ? $entry['user']->name : variable_get('anonymous', t('Anonymous'));
+
+  $username = !empty($entry['user']->name) ? $entry['user']->name : variable_get('anonymous', t('Anonymous'));
+
+  $gelf = new GELFMessage();
   $gelf->setShortMessage($short_message);
   $gelf->setFullMessage($message);
   $gelf->setHost($source_host);
@@ -81,15 +121,37 @@ function gelf_watchdog($entry) {
   $gelf->setAdditional("Request_uri", $entry['request_uri']);
   $gelf->setAdditional("Server_host", $_SERVER['HTTP_HOST']);
   $gelf->setAdditional("Client_host", $entry['ip']);
-  try {
-    $publisher = new GELFMessagePublisher($host, $port);
-    $publisher->publish($gelf);
-  }
-  catch (UnexpectedValueException $e) {
-    if(function_exists('user_access') && user_access('administer gelf')) {
-      drupal_set_message(t('Failed to publish gelf message: %message', array('%message' => $e->getMessage())), 'error');
+
+  return $gelf;
+}
+
+/**
+ * @param $send_as
+ *
+ * @return mixed|string
+ */
+function _gelf_determine_source_host($send_as)
+{
+  if($send_as == 'HTTP_HOST') {
+    // The HTTP_HOST can be set to default in the case of a CLI script
+    if($_SERVER['HTTP_HOST'] == 'default') {
+      global $base_url;
+      $source_host = parse_url($base_url, PHP_URL_HOST);
+
+      // base_url is not set, fallback to hostname
+      if($source_host == 'default') {
+        $source_host = php_uname('n');
+      }
+    }
+    else {
+        $source_host = $_SERVER['HTTP_HOST'];
     }
   }
+  else {
+    $source_host = php_uname('n');
+  }
+
+  return $source_host;
 }
 
 /**
@@ -136,7 +198,6 @@ function gelf_form_system_logging_settings_alter(&$form, $form_state) {
   return $form;
 }
 
-
 /**
  * Include gelf-php library.
  *
@@ -149,7 +210,7 @@ function gelf_require() {
   }
 
   // Check module for Composer autoload file.
-  if (@include_once(dirname(__FILE__) . '/vendor/autoload.php')) {
+  if (@include_once(__DIR__ . '/vendor/autoload.php')) {
     return TRUE;
   }
 
@@ -167,4 +228,16 @@ function gelf_require() {
   }
 
   return FALSE;
+}
+
+/**
+ * Displays the provides test on the website if the current user has the requitred permissions.
+ *
+ * @param $text
+ */
+function _gelf_show_message($text)
+{
+  if(function_exists('user_access') && user_access('administer gelf')) {
+    drupal_set_message(t($text), 'error');
+  }
 }
